@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: upi-data-pvc
+  labels:
+    app: upi-simulator
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # Omit storageClassName so the cluster default is used.
+  # The claim must be ReadWriteOnce because a single SQLite writer owns the file.

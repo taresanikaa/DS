@@ -1,0 +1,46 @@
+{
+  "name": "upi-simulator-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "vite build",
+    "start": "tsx server.ts",
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
+    "lint": "tsc --noEmit",
+    "test": "tsx test_synchronization.ts && tsx test_communication.ts && tsx test_unit1_grpc.ts && tsx test_unit2_communication.ts && tsx test_db_persistence.ts && tsx test_consistency_experiment.ts && tsx test_integration_race_and_consistency.ts && tsx test_unit4_deployment.ts",
+    "test:sync": "tsx test_synchronization.ts",
+    "test:comm": "tsx test_communication.ts",
+    "test:unit2": "tsx test_unit2_communication.ts",
+    "test:grpc": "tsx test_unit1_grpc.ts",
+    "test:db": "tsx test_db_persistence.ts",
+    "test:consistency": "tsx test_consistency_experiment.ts",
+    "test:integration": "tsx test_integration_race_and_consistency.ts",
+    "test:deploy": "tsx test_unit4_deployment.ts",
+    "test:infra": "tsx scripts/verify_infra.ts"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.6",
+    "@grpc/proto-loader": "^0.8.1",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.1.1",
+    "tsx": "^4.19.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}

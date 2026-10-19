@@ -1,0 +1,21 @@
+# ============================================================================
+# NOT APPLIED by kustomization.yaml
+# Companion to the educational StatefulSet example. Not part of live deploy.
+# ============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: upi-nodes-headless
+  labels:
+    app: upi-consensus
+    tier: synchronization
+spec:
+  clusterIP: None
+  selector:
+    app: upi-consensus
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: peer-comm
+      protocol: TCP

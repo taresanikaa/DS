@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upi-simulator
+  labels:
+    app: upi-simulator
+    component: core-orchestrator
+    tier: api
+    app.kubernetes.io/name: upi-simulator
+    app.kubernetes.io/instance: upi-production
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 1
+  # Recreate is required: the SQLite PVC is ReadWriteOnce, so two pods cannot
+  # mount it during a RollingUpdate surge. Do not raise replicas above 1.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: upi-simulator
+  template:
+    metadata:
+      labels:
+        app: upi-simulator
+        component: core-orchestrator
+        tier: api
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: upi-simulator
+          image: upi-simulator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http
+              protocol: TCP
+            - containerPort: 50051
+              name: grpc
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          envFrom:
+            - configMapRef:
+                name: upi-simulator-config
+            - secretRef:
+                name: upi-simulator-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: upi-data-pvc
+        - name: tmp-volume
+          emptyDir: {}

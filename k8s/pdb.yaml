@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: upi-simulator-pdb
+  labels:
+    app: upi-simulator
+spec:
+  # Single SQLite writer: allow the only replica to be evicted rather than blocking drains.
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: upi-simulator

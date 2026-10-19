@@ -1,0 +1,51 @@
+name: upi-distributed-simulator
+
+services:
+  upi-simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: upi-simulator:latest
+    container_name: upi-simulator-app
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      - "3000:3000"
+      - "50051:50051"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      SQLITE_DB_PATH: /app/data/upi_simulator.db
+      CIRCUIT_BREAKER_FAILURE_THRESHOLD: "3"
+      CIRCUIT_BREAKER_RECOVERY_TIMEOUT: "10"
+      CIRCUIT_BREAKER_SUCCESS_THRESHOLD: "1"
+      MAX_RETRIES: "2"
+      RETRY_DELAY_SECONDS: "0.4"
+      REQUEST_TIMEOUT_SECONDS: "3"
+      TMPDIR: /tmp
+      HOME: /tmp
+    volumes:
+      - upi_data:/app/data
+    tmpfs:
+      - /tmp
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 25s
+    networks:
+      - upi-net
+
+networks:
+  upi-net:
+    driver: bridge
+
+volumes:
+  upi_data:
+    name: upi_simulator_data

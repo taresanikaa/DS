@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "allowImportingTsExtensions": true,
+    "strict": false,
+    "noEmit": true
+  },
+  "include": [
+    "src",
+    "server.ts",
+    "vite.config.ts",
+    "test_synchronization.ts",
+    "test_communication.ts",
+    "test_unit1_grpc.ts",
+    "test_unit2_communication.ts",
+    "test_db_persistence.ts",
+    "test_consistency_experiment.ts",
+    "test_unit4_deployment.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "data"
+  ]
+}

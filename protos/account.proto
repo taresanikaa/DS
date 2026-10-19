@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package upi.account.v1;
+
+// Service definition for Account Service (gRPC Middleware)
+service AccountService {
+  // Executes atomic balance debit on sender account
+  rpc DebitAccount (DebitRequest) returns (DebitResponse);
+
+  // Executes atomic balance credit on receiver account
+  rpc CreditAccount (CreditRequest) returns (CreditResponse);
+
+  // Queries account balance and details
+  rpc GetBalance (BalanceRequest) returns (BalanceResponse);
+
+  // Executes compensating Saga rollback when downstream steps fail
+  rpc RollbackDebit (RollbackRequest) returns (RollbackResponse);
+
+  // Health check for gRPC service liveness & readiness
+  rpc HealthCheck (HealthRequest) returns (HealthResponse);
+}
+
+message DebitRequest {
+  string transaction_id = 1;
+  string account_id = 2;
+  double amount = 3;
+  string correlation_id = 4;
+  int64 lamport_clock = 5;
+}
+
+message DebitResponse {
+  bool success = 1;
+  string transaction_id = 2;
+  string account_id = 3;
+  double remaining_balance = 4;
+  string message = 5;
+  string error = 6;
+  int64 timestamp_epoch = 7;
+  int64 lamport_clock = 8;
+}
+
+message CreditRequest {
+  string transaction_id = 1;
+  string account_id = 2;
+  double amount = 3;
+  string correlation_id = 4;
+  int64 lamport_clock = 5;
+}
+
+message CreditResponse {
+  bool success = 1;
+  string transaction_id = 2;
+  string account_id = 3;
+  double new_balance = 4;
+  string message = 5;
+  string error = 6;
+  int64 timestamp_epoch = 7;
+  int64 lamport_clock = 8;
+}
+
+message BalanceRequest {
+  string account_id = 1;
+}
+
+message BalanceResponse {
+  string account_id = 1;
+  string user_name = 2;
+  string bank_name = 3;
+  double balance = 4;
+  bool is_active = 5;
+}
+
+message RollbackRequest {
+  string transaction_id = 1;
+  string account_id = 2;
+  double amount = 3;
+  string reason = 4;
+  int64 lamport_clock = 5;
+}
+
+message RollbackResponse {
+  bool success = 1;
+  string transaction_id = 2;
+  double restored_balance = 3;
+  string message = 4;
+  int64 lamport_clock = 5;
+}
+
+message HealthRequest {
+  string service_name = 1;
+}
+
+message HealthResponse {
+  string status = 1; // "SERVING" or "NOT_SERVING"
+  string version = 2;
+  int64 uptime_seconds = 3;
+  int64 timestamp_epoch = 4;
+}

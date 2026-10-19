@@ -1,0 +1,39 @@
+# ============================================================================
+# NOT APPLIED by kustomization.yaml
+#
+# This file is retained only as an academic schema example.
+# The authoritative SQLite writer Deployment must stay at 1 replica.
+# Applying an HPA with minReplicas/maxReplicas > 1 against upi-simulator
+# would either fail PVC multi-attach or create split-brain ledgers.
+#
+# Horizontal scale-out requires an external multi-writer database
+# (for example PostgreSQL) and is out of scope for this SQLite simulator.
+# ============================================================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: upi-simulator-hpa
+  labels:
+    app: upi-simulator
+  annotations:
+    scaling.enforcement/sqlite-safe-replicas: "1"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: upi-simulator
+  minReplicas: 1
+  maxReplicas: 1
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      selectPolicy: Disabled
+    scaleDown:
+      selectPolicy: Disabled

@@ -1,0 +1,6 @@
+{
+  "name": "UPI Distributed Transaction Simulator",
+  "description": "Interactive distributed systems simulator demonstrating UPI payment orchestration, circuit breakers, fault tolerance, Saga rollbacks, and multi-protocol communication (REST, gRPC, RabbitMQ, WebSockets, P2P, WebRTC).",
+  "requestFramePermissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
