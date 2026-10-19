@@ -647,7 +647,12 @@ async function simulateSenderBankRollback(transactionId: string) {
   const rollbackRes = persistentDb.atomicRollback(transactionId);
   SENDER_DEBITS.delete(transactionId);
   if (!rollbackRes.success) {
-    return { status: "NO_DEBIT_FOUND" };
+    return {
+      status: rollbackRes.reason?.includes("receiver credit already settled")
+        ? "CREDIT_ALREADY_SETTLED"
+        : "NO_DEBIT_FOUND",
+      reason: rollbackRes.reason,
+    };
   }
   return {
     status: "ROLLED_BACK",
@@ -846,6 +851,23 @@ async function safeRollbackSenderDebit(txn: TransactionRecord, mode = "rest") {
 
   try {
     const rbResult = await simulateSenderBankRollback(txnId);
+    if (rbResult.status === "CREDIT_ALREADY_SETTLED") {
+      setStatus(txn, "SUCCESS", "Receiver credit was settled before rollback; transaction completed");
+      recordTimeline(
+        txn,
+        "PAYMENT_SUCCESS_SETTLED",
+        "Transaction Service",
+        "Receiver credit was already confirmed and settled before rollback; transaction completed successfully."
+      );
+      broadcastStreamEvent({
+        event: "PAYMENT_SUCCESS_SETTLED",
+        transactionId: txnId,
+        service: "Transaction Service",
+        status: "SUCCESS",
+        message: "Receiver credit already settled before rollback; transaction finalized as SUCCESS",
+      });
+      return;
+    }
     if (rbResult.status === "NO_DEBIT_FOUND") {
       const hasDebit = SENDER_DEBITS.has(txnId) || txn.timeline.some((t) => t.event.includes("DEBIT"));
       if (hasDebit) {
@@ -1799,7 +1821,6 @@ async function startServer() {
   app.post("/api/transaction/initiate", async (req: Request, res: Response) => {
     try {
       const { senderId, receiverId, amount, idempotencyKey, mode } = req.body || {};
-      const numAmount = Number(amount);
 
       if (!senderId || !receiverId) {
         res.status(400).json({ detail: "senderId and receiverId are required" });
@@ -1809,9 +1830,22 @@ async function startServer() {
         res.status(400).json({ detail: "Sender and receiver must be different accounts" });
         return;
       }
-      if (isNaN(numAmount) || numAmount <= 0) {
-        res.status(400).json({ detail: "Amount must be greater than zero" });
+      if (amount === undefined || amount === null || typeof amount === "boolean" || (typeof amount !== "number" && typeof amount !== "string")) {
+        res.status(400).json({ detail: "Amount must be a valid positive number" });
         return;
+      }
+      const numAmount = Number(amount);
+      if (!Number.isFinite(numAmount) || isNaN(numAmount) || numAmount <= 0) {
+        res.status(400).json({ detail: "Amount must be a finite positive number" });
+        return;
+      }
+      const strAmount = String(amount).trim();
+      if (strAmount.includes(".")) {
+        const decimals = strAmount.split(".")[1];
+        if (decimals.length > 2) {
+          res.status(400).json({ detail: "Malformed amount: maximum 2 decimal places allowed (fractional paise not supported)" });
+          return;
+        }
       }
 
       const senderUser = getUserByIdOrUpi(String(senderId));
@@ -1859,7 +1893,15 @@ async function startServer() {
       }
 
       if (idemCheck.status === "MATCH") {
-        const existingTxn = persistentDb.getTransaction(idemCheck.transactionId!) || TRANSACTIONS.get(idemCheck.transactionId!);
+        let existingTxn = persistentDb.getTransaction(idemCheck.transactionId!) || TRANSACTIONS.get(idemCheck.transactionId!);
+        if (!existingTxn) {
+          // If transaction was just reserved concurrently in another thread, wait briefly for it to materialize
+          for (let wait = 0; wait < 10; wait++) {
+            await sleep(50);
+            existingTxn = persistentDb.getTransaction(idemCheck.transactionId!) || TRANSACTIONS.get(idemCheck.transactionId!);
+            if (existingTxn) break;
+          }
+        }
         if (existingTxn) {
           broadcastStreamEvent({
             event: "DUPLICATE_REQUEST_DETECTED",
@@ -1875,6 +1917,16 @@ async function startServer() {
             ...existingTxn,
             duplicateRequest: true,
             message,
+          });
+          return;
+        } else {
+          // Return in-flight representation of the already-reserved matching transaction
+          res.json({
+            transactionId: idemCheck.transactionId,
+            idempotencyKey: idemKey,
+            status: "PROCESSING",
+            duplicateRequest: true,
+            message: "Transaction is currently in-flight. Duplicate processing prevented.",
           });
           return;
         }

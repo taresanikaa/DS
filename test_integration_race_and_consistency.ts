@@ -2,7 +2,7 @@
 // Integration Test: Real Race Experiment & Consistency Replication API Routes
 // ============================================================================
 
-import { rupeesToPaise, paiseToRupees } from "./src/server/db.ts";
+import { rupeesToPaise, paiseToRupees, db, persistentDb } from "./src/server/db.ts";
 import { spawn, ChildProcess } from "child_process";
 
 function assert(condition: boolean, message: string) {
@@ -198,6 +198,160 @@ async function run() {
   const resetData = await resetRes.json();
   assert(resetRes.ok, "POST /api/experiments/consistency/reset responded HTTP 200");
   assert(resetData.success === true, "Cluster reset to clean baseline");
+
+  // 12. Financial Validation & Monetary Precision Boundaries
+  console.log("\n--- 12. Testing Live API Financial Validation & Monetary Precision Boundaries ---");
+  
+  // Non-number / boolean rejection
+  const boolRes = await fetch(`${BASE_URL}/api/transaction/initiate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ senderId: "user1@upi", receiverId: "user2@upi", amount: true, idempotencyKey: `IDEM-BOOL-${Date.now()}` }),
+  });
+  assert(boolRes.status === 400, "Boolean amount { amount: true } rejected with HTTP 400 Bad Request");
+
+  // NaN string rejection
+  const nanRes = await fetch(`${BASE_URL}/api/transaction/initiate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ senderId: "user1@upi", receiverId: "user2@upi", amount: "not_a_number", idempotencyKey: `IDEM-NAN-${Date.now()}` }),
+  });
+  assert(nanRes.status === 400, "Malformed string amount rejected with HTTP 400 Bad Request");
+
+  // Zero amount rejection
+  const zeroRes = await fetch(`${BASE_URL}/api/transaction/initiate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ senderId: "user1@upi", receiverId: "user2@upi", amount: 0, idempotencyKey: `IDEM-ZERO-${Date.now()}` }),
+  });
+  assert(zeroRes.status === 400, "Zero amount transfer rejected with HTTP 400 Bad Request");
+
+  // Negative amount rejection
+  const negRes = await fetch(`${BASE_URL}/api/transaction/initiate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ senderId: "user1@upi", receiverId: "user2@upi", amount: -150, idempotencyKey: `IDEM-NEG-${Date.now()}` }),
+  });
+  assert(negRes.status === 400, "Negative amount transfer rejected with HTTP 400 Bad Request");
+
+  // Sub-paise fractional decimal rejection (e.g. 10.555)
+  const fracRes = await fetch(`${BASE_URL}/api/transaction/initiate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ senderId: "user1@upi", receiverId: "user2@upi", amount: 10.555, idempotencyKey: `IDEM-FRAC-${Date.now()}` }),
+  });
+  assert(fracRes.status === 400, "Sub-paise fractional decimal amount (10.555) rejected with HTTP 400 Bad Request");
+
+  // Self-transfer rejection
+  const selfRes = await fetch(`${BASE_URL}/api/transaction/initiate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ senderId: "user1@upi", receiverId: "user1@upi", amount: 50, idempotencyKey: `IDEM-SELF-${Date.now()}` }),
+  });
+  assert(selfRes.status === 400, "Self-transfer (sender === receiver) rejected with HTTP 400 Bad Request");
+
+  // Unknown sender account rejection
+  const unkRes = await fetch(`${BASE_URL}/api/transaction/initiate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ senderId: "ghost_vpa@randombank", receiverId: "user2@upi", amount: 50, idempotencyKey: `IDEM-UNK-${Date.now()}` }),
+  });
+  assert(unkRes.status === 400, "Unknown account transfer rejected with HTTP 400 Bad Request");
+
+  // 13. Live API High-Concurrency Idempotency Test
+  console.log("\n--- 13. Testing Live API High-Concurrency Idempotency Under Parallel Stress ---");
+  const testKey = `IDEM-CONCUR-PARALLEL-${Date.now()}`;
+  const u1PreRes = await fetch(`${BASE_URL}/api/users`);
+  const u1PreData = await u1PreRes.json();
+  const u1PreBal = u1PreData.users.find((u: any) => u.upi_id === "user1@upi")!.balance;
+  const u2PreBal = u1PreData.users.find((u: any) => u.upi_id === "user2@upi")!.balance;
+
+  const parallelReqs = Array.from({ length: 5 }, () =>
+    fetch(`${BASE_URL}/api/transaction/initiate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        senderId: "user1@upi",
+        receiverId: "user2@upi",
+        amount: 100,
+        idempotencyKey: testKey,
+        mode: "rest",
+      }),
+    })
+  );
+
+  const parallelResponses = await Promise.all(parallelReqs);
+  const parallelData = await Promise.all(parallelResponses.map((r) => r.json()));
+
+  // All 5 must succeed with 200 OK
+  for (const r of parallelResponses) {
+    assert(r.ok, "Parallel idempotency request returned HTTP 200 OK");
+  }
+
+  // All 5 must return the exact same transaction ID
+  const firstTxnId = parallelData[0].transactionId;
+  assert(Boolean(firstTxnId), "Valid transactionId returned from parallel requests");
+  for (const d of parallelData) {
+    assert(d.transactionId === firstTxnId, `All parallel responses returned matching transactionId ${firstTxnId}`);
+  }
+
+  // Check sender balance debited exactly once
+  const u1PostRes = await fetch(`${BASE_URL}/api/users`);
+  const u1PostData = await u1PostRes.json();
+  const u1PostBal = u1PostData.users.find((u: any) => u.upi_id === "user1@upi")!.balance;
+  const u2PostBal = u1PostData.users.find((u: any) => u.upi_id === "user2@upi")!.balance;
+
+  assert(u1PostBal === u1PreBal - 100, `Sender balance was debited exactly once (₹${u1PreBal} -> ₹${u1PostBal}) despite 5 simultaneous requests`);
+  assert(u2PostBal === u2PreBal + 100, `Receiver balance was credited exactly once (₹${u2PreBal} -> ₹${u2PostBal}) despite 5 simultaneous requests`);
+
+  // 14. Live API Idempotency Conflict Detection
+  console.log("\n--- 14. Testing Live API Idempotency Conflict Detection ---");
+  const conflictAmtRes = await fetch(`${BASE_URL}/api/transaction/initiate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      senderId: "user1@upi",
+      receiverId: "user2@upi",
+      amount: 999, // altered amount
+      idempotencyKey: testKey,
+      mode: "rest",
+    }),
+  });
+  const conflictAmtData = await conflictAmtRes.json();
+  assert(conflictAmtRes.status === 409, "Reusing key with altered amount returns HTTP 409 Conflict");
+  assert(conflictAmtData.code === "IDEMPOTENCY_CONFLICT", "Conflict error code IDEMPOTENCY_CONFLICT returned");
+
+  const conflictRcvRes = await fetch(`${BASE_URL}/api/transaction/initiate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      senderId: "user1@upi",
+      receiverId: "rahul@bank", // altered receiver
+      amount: 100,
+      idempotencyKey: testKey,
+      mode: "rest",
+    }),
+  });
+  const conflictRcvData = await conflictRcvRes.json();
+  assert(conflictRcvRes.status === 409, "Reusing key with altered receiver returns HTTP 409 Conflict");
+  assert(conflictRcvData.code === "IDEMPOTENCY_CONFLICT", "Conflict error code IDEMPOTENCY_CONFLICT returned");
+
+  // 15. Double-Entry Ledger Parity & Money Conservation Check
+  console.log("\n--- 15. Testing Double-Entry Ledger Parity & Closed-System Money Conservation ---");
+  const inv = persistentDb.getLedgerInvariants();
+  assert(inv.debitCreditParity === true, "Ledger debits match ledger credits across all transactions");
+  assert(inv.isConservationPreserved === true, "Closed-system money conservation strictly preserved (total == genesis)");
+
+  // Clean up parallel test records to restore pristine baseline
+  try {
+    db.prepare("DELETE FROM sender_debits WHERE transaction_id = ?").run(firstTxnId);
+    db.prepare("DELETE FROM receiver_credits WHERE transaction_id = ?").run(firstTxnId);
+    db.prepare("DELETE FROM ledger_entries WHERE transaction_id = ?").run(firstTxnId);
+    db.prepare("DELETE FROM transactions WHERE transaction_id = ?").run(firstTxnId);
+    db.prepare("DELETE FROM idempotency_records WHERE key = ?").run(testKey);
+    db.prepare("UPDATE accounts SET balance_paise = ? WHERE upi_id = 'user1@upi'").run(rupeesToPaise(u1PreBal));
+    db.prepare("UPDATE accounts SET balance_paise = ? WHERE upi_id = 'user2@upi'").run(rupeesToPaise(u2PreBal));
+  } catch {}
 
   console.log("\n============================================================");
   console.log("ALL INTEGRATION TESTS PASSED WITH 100% SUCCESS!");

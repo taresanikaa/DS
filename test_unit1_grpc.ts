@@ -16,7 +16,7 @@ import {
   setAccountStore,
   AccountStore,
 } from "./src/server/grpcAccountService.ts";
-import { persistentDb } from "./src/server/db.ts";
+import { persistentDb, db } from "./src/server/db.ts";
 import * as grpc from "@grpc/grpc-js";
 
 function assert(condition: boolean, message: string) {
@@ -41,8 +41,11 @@ async function runGrpcTests() {
     serverStarted = true;
     assert(port === 50051, `gRPC Account Server successfully bound to port ${port}`);
   } catch (err: any) {
-    if (String(err?.message || err).includes("EADDRINUSE")) {
-      assert(true, "gRPC Account Server already active on port 50051 (reusing active instance)");
+    if (String(err?.message || err).includes("EADDRINUSE") || String(err?.message || err).includes("No address added")) {
+      const res = await startGrpcAccountServer(50052, { resetTestState: true });
+      port = res.port;
+      serverStarted = true;
+      assert(true, `gRPC Account Server active on test port ${port}`);
     } else {
       throw err;
     }
@@ -57,6 +60,8 @@ async function runGrpcTests() {
   assert(health.version === "1.0.0", "gRPC Service version 1.0.0 confirmed");
 
   console.log("\n--- 3. Testing gRPC GetBalance RPC ---");
+  const sanikaPreTestPaise = persistentDb.getAccountByUpiOrId("sanika@bank")?.balance_paise ?? 875000;
+  const navyaPreTestPaise = persistentDb.getAccountByUpiOrId("navya@bank")?.balance_paise ?? 625000;
   let balBefore = await executeGrpcBalance(client, "sanika@bank");
   if (balBefore.balance !== 10000) {
     if (balBefore.balance < 10000) {
@@ -296,6 +301,17 @@ async function runGrpcTests() {
     "gRPC shutdown does not rewrite SQLite account balances"
   );
   assert(true, "gRPC server shutdown completed without resource leak");
+
+  // Restore state so subsequent database persistence & ledger parity tests stay consistent
+  try {
+    db.prepare("DELETE FROM sender_debits WHERE transaction_id LIKE 'TXN-GRPC-%' OR transaction_id LIKE 'TXN-INIT-RESET%'").run();
+    db.prepare("DELETE FROM receiver_credits WHERE transaction_id LIKE 'TXN-GRPC-%' OR transaction_id LIKE 'TXN-INIT-RESET%'").run();
+    db.prepare("DELETE FROM ledger_entries WHERE transaction_id LIKE 'TXN-GRPC-%' OR transaction_id LIKE 'TXN-INIT-RESET%'").run();
+    db.prepare("DELETE FROM transactions WHERE transaction_id LIKE 'TXN-GRPC-%' OR transaction_id LIKE 'TXN-INIT-RESET%'").run();
+    db.prepare("DELETE FROM idempotency_records WHERE transaction_id LIKE 'TXN-GRPC-%' OR transaction_id LIKE 'TXN-INIT-RESET%'").run();
+    db.prepare("UPDATE accounts SET balance_paise = ? WHERE upi_id = 'sanika@bank'").run(sanikaPreTestPaise);
+    db.prepare("UPDATE accounts SET balance_paise = ? WHERE upi_id = 'navya@bank'").run(navyaPreTestPaise);
+  } catch {}
 
   console.log("\n============================================================");
   console.log("ALL UNIT I gRPC MIDDLEWARE TESTS PASSED SUCCESSFULLY!");

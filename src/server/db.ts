@@ -538,7 +538,7 @@ export class PersistentLedgerDatabase {
     transactionId: string,
     description: string
   ): { success: boolean; reason?: string; balanceAfterPaise?: number; senderUpi?: string } {
-    if (isNaN(amountPaise) || amountPaise <= 0) {
+    if (!Number.isFinite(amountPaise) || isNaN(amountPaise) || amountPaise <= 0 || !Number.isInteger(amountPaise)) {
       return { success: false, reason: "Invalid amount: must be positive integer paise" };
     }
 
@@ -628,7 +628,7 @@ export class PersistentLedgerDatabase {
     transactionId: string,
     description: string
   ): { success: boolean; ackId?: string; reason?: string; balanceAfterPaise?: number; receiverUpi?: string } {
-    if (isNaN(amountPaise) || amountPaise <= 0) {
+    if (!Number.isFinite(amountPaise) || isNaN(amountPaise) || amountPaise <= 0 || !Number.isInteger(amountPaise)) {
       return { success: false, reason: "Invalid amount: must be positive integer paise" };
     }
 
@@ -809,7 +809,7 @@ export class PersistentLedgerDatabase {
     transactionId: string,
     description: string
   ): { success: boolean; reason?: string; senderBalanceAfterPaise?: number; receiverBalanceAfterPaise?: number } {
-    if (isNaN(amountPaise) || amountPaise <= 0) {
+    if (!Number.isFinite(amountPaise) || isNaN(amountPaise) || amountPaise <= 0 || !Number.isInteger(amountPaise)) {
       return { success: false, reason: "Invalid amount: must be positive integer paise" };
     }
     if (senderUpi === receiverUpi) {

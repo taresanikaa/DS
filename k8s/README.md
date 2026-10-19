@@ -7,14 +7,15 @@ This guide documents the production-grade Kubernetes deployment architecture for
 ## 1. Architectural Layout & Resource Topology
 
 ```text
-[ External / Ingress Traffic ]
+[ External / Port-Forward / Ingress Traffic ]
            │
            ▼
-[ Service: upi-simulator-service (NodePort :30080 -> :3000) ]
+[ Service: upi-simulator-service (ClusterIP :3000 HTTP, :50051 gRPC) ]
            │
-           ▼ (Round-Robin Load Distribution)
+           ▼ (Pinned Single-Writer Architecture)
 ┌─────────────────────────────────────────────────────────────┐
-│  Deployment: upi-simulator (2 Replicas, RollingUpdate)      │
+│  Deployment: upi-simulator (1 Replica, Recreate Strategy)   │
+│  - Authoritative SQLite Writer (Strict 1 Replica)           │
 │  - Image: upi-simulator:latest (Non-root UID 1000)          │
 │  - Security: readOnlyRootFilesystem, drop ALL capabilities   │
 │  - Probes: Startup, Liveness, Readiness on /health          │
@@ -27,10 +28,10 @@ This guide documents the production-grade Kubernetes deployment architecture for
            │
            ▼ (Stable Network Identities: node-0, node-1, node-2)
 ┌─────────────────────────────────────────────────────────────┐
-│  StatefulSet: upi-consensus-nodes (3 Replicas)              │
+│  StatefulSet: upi-consensus-nodes (Educational Specimen)    │
 │  - Bank Alpha (node-0), Bank Beta (node-1), NPCI Hub (node-2)│
-│  - VolumeClaimTemplates: 500Mi per replica                  │
-│  - Peer-to-Peer Actor Discovery & Vector Clock Sync         │
+│  - Educational specimen for peer-to-peer actor discovery    │
+│  - Not deployed as live extra SQLite writers                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -41,15 +42,15 @@ This guide documents the production-grade Kubernetes deployment architecture for
 | File | API Version | Kind | Purpose |
 |---|---|---|---|
 | `k8s/configmap.yaml` | `v1` | `ConfigMap` | Non-sensitive cluster configuration parameters and timeout values. |
-| `k8s/secret.yaml` | `v1` | `Secret` | Sensitive HMAC signing keys, API tokens, and encryption secrets. |
-| `k8s/pvc.yaml` | `v1` | `PersistentVolumeClaim` | 1Gi `ReadWriteOnce` persistent storage for SQLite WAL persistence across pod restarts. |
-| `k8s/deployment.yaml` | `apps/v1` | `Deployment` | 2 replicas of UPI orchestrator with `maxSurge: 1, maxUnavailable: 0`, hardened securityContext, and probes. |
-| `k8s/statefulset.yaml` | `apps/v1` | `StatefulSet` | 3 replicas for distributed synchronization nodes with headless service and volume templates. |
-| `k8s/service.yaml` | `v1` | `Service` | NodePort service exposing the API and WebSocket simulator on port `30080`. |
+| `k8s/secret.yaml` | `v1` | `Secret` | Placeholder HMAC signing keys, API tokens, and encryption secrets. |
+| `k8s/pvc.yaml` | `v1` | `PersistentVolumeClaim` | 1Gi `ReadWriteOnce` persistent storage for single authoritative SQLite writer across pod restarts. |
+| `k8s/deployment.yaml` | `apps/v1` | `Deployment` | 1 replica of UPI orchestrator with `type: Recreate` (avoids RWO dual-mount), hardened securityContext, and probes. |
+| `k8s/statefulset.yaml` | `apps/v1` | `StatefulSet` | Educational specimen for distributed actor consensus discovery (not applied as extra live writers). |
+| `k8s/service.yaml` | `v1` | `Service` | Portable `ClusterIP` service exposing HTTP on port `3000` and gRPC on port `50051`. |
 | `k8s/headless-service.yaml` | `v1` | `Service` | Headless Service (`clusterIP: None`) for peer-to-peer actor DNS resolution. |
-| `k8s/hpa.yaml` | `autoscaling/v2` | `HorizontalPodAutoscaler` | Autoscaling from 2 to 10 pods based on CPU (70%) and Memory (80%). |
-| `k8s/pdb.yaml` | `policy/v1` | `PodDisruptionBudget` | Guarantees at least 1 replica remains available during voluntary disruptions. |
-| `k8s/kustomization.yaml` | `kustomize.config.k8s.io/v1beta1` | `Kustomization` | Single entry point to deploy all resources deterministically. |
+| `k8s/hpa.yaml` | `autoscaling/v2` | `HorizontalPodAutoscaler` | Educational HPA specimen configured with scale-up disabled to prevent multiple SQLite writer corruption. |
+| `k8s/pdb.yaml` | `policy/v1` | `PodDisruptionBudget` | Configured to allow pod eviction during voluntary node maintenance. |
+| `k8s/kustomization.yaml` | `kustomize.config.k8s.io/v1beta1` | `Kustomization` | Single entry point deploying live resources: namespace, configmap, secret, pvc, deployment, service, pdb. |
 
 ---
 
